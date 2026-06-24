@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppStore } from '../store/appStore';
 import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
@@ -15,6 +16,7 @@ import UserProfileModal from '../components/UserProfileModal';
 export default function Messenger() {
   const { userProfile } = useAuth();
   const { startCall } = useAppStore();
+  const navigate = useNavigate();
 
   const [matches, setMatches] = useState<(Match & { targetUser: UserProfile })[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<(Match & { targetUser: UserProfile }) | null>(null);
@@ -23,6 +25,18 @@ export default function Messenger() {
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedProfileUid, setSelectedProfileUid] = useState<string | null>(null);
+
+  // Free account message limit states
+  const [dailySentCount, setDailySentCount] = useState(0);
+  const [dailyConversations, setDailyConversations] = useState<string[]>([]);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Payment modal state for 250 FCFA temporary chat unlock
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockPhoneNumber, setUnlockPhoneNumber] = useState('');
+  const [unlockPaymentMethod, setUnlockPaymentMethod] = useState<'moneyfusion' | 'orange' | 'mtn' | 'wave'>('moneyfusion');
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [unlockSuccess, setUnlockSuccess] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -115,10 +129,61 @@ export default function Messenger() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Load and refresh daily messaging statistics for free users
+  useEffect(() => {
+    if (!userProfile) return;
+
+    const loadDailyStats = async () => {
+      try {
+        const stats = await dbService.getSentMessagesCountToday(userProfile.uid);
+        setDailySentCount(stats.total);
+        setDailyConversations(stats.conversationIds);
+      } catch (err) {
+        console.error("Error loading daily chat stats:", err);
+      }
+    };
+
+    loadDailyStats();
+  }, [selectedMatch, userProfile, messages]);
+
   const handleSendMessage = async (e?: React.FormEvent, customFields: Partial<Message> = {}) => {
     if (e) e.preventDefault();
     if (!inputText.trim() && !customFields.image && !customFields.audio && !customFields.gif) return;
     if (!userProfile || !selectedMatch) return;
+
+    // Check if limits apply (only for free accounts where chat isn't temporarily unlocked)
+    const isPremiumOrVip = userProfile?.isPremium || userProfile?.isVip;
+    const isChatUnlocked = selectedMatch?.unlockedUntil && new Date(selectedMatch.unlockedUntil).getTime() > Date.now();
+
+    if (!isPremiumOrVip && !isChatUnlocked) {
+      const textToCheck = inputText.trim() || '';
+
+      // 1. Check numeric values (phone coordinates or other digits)
+      if (textToCheck && /[0-9]/.test(textToCheck)) {
+        setErrorMessage("⚠️ Sécurité : En formule gratuite, vous ne pouvez pas envoyer de chiffres ou de données numériques. Abonnez-vous à LoveRose Premium ou débloquez ce chat pour 24h (250 FCFA) !");
+        return;
+      }
+
+      // 2. Check external links
+      const urlPattern = /(https?:\/\/|www\.\w+\.\w+|[a-zA-Z0-9-]+\.(com|fr|net|org|be|info|xyz))/i;
+      if (textToCheck && urlPattern.test(textToCheck)) {
+        setErrorMessage("⚠️ Sécurité : L'envoi de liens externes est réservé aux membres Premium ou aux conversations débloquées (250 FCFA) !");
+        return;
+      }
+
+      // 3. Check daily limits (max 3 messages total, distributed across 3 different conversations)
+      // Check if we already sent a message in this conversation today
+      const alreadySentInThisConv = dailyConversations.includes(selectedMatch.id);
+      if (alreadySentInThisConv) {
+        setErrorMessage("⚠️ En tant que membre gratuit, vos 3 messages quotidiens doivent être répartis sur 3 conversations différentes (max 1 message par destinataire par jour). Devenez Premium ou débloquez cette conversation pour 24h à seulement 250 FCFA !");
+        return;
+      }
+
+      if (dailySentCount >= 3) {
+        setErrorMessage("⚠️ Vous avez atteint votre limite de 3 messages gratuits par jour. Devenez Premium ou débloquez ce chat pour 24h (250 FCFA) !");
+        return;
+      }
+    }
 
     try {
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -142,6 +207,7 @@ export default function Messenger() {
 
       setInputText('');
       setReplyMessage(null);
+      setErrorMessage('');
     } catch (err) {
       console.error("Error sending message:", err);
     }
@@ -182,6 +248,47 @@ export default function Messenger() {
       handleSendMessage(undefined, { gif: 'https://media.giphy.com/media/26hpKzG2eLPvK/giphy.gif' });
     } else {
       handleSendMessage(undefined, { audio: 'https://example.com/mock-audio.mp3' });
+    }
+  };
+
+  const handleUnlockPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unlockPhoneNumber.trim()) {
+      alert("S'il vous plaît, entrez votre numéro de téléphone de paiement.");
+      return;
+    }
+    setUnlockLoading(true);
+    setUnlockSuccess(false);
+
+    try {
+      // Simulate real gateway query to MoneyFusion API
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Save unlock state
+      if (selectedMatch && userProfile) {
+        await dbService.unlockConversation(selectedMatch.id, userProfile.uid);
+        
+        // Refresh selected match representation locally
+        const updatedMatch = {
+          ...selectedMatch,
+          unlockedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          unlockedBy: userProfile.uid
+        };
+        setSelectedMatch(updatedMatch);
+      }
+
+      setUnlockSuccess(true);
+      setTimeout(() => {
+        setShowUnlockModal(false);
+        setUnlockSuccess(false);
+        setUnlockPhoneNumber('');
+        setErrorMessage('');
+      }, 2000);
+    } catch (err) {
+      console.error("Unlock payment failed:", err);
+      alert("Le paiement a échoué. Veuillez réessayer.");
+    } finally {
+      setUnlockLoading(false);
     }
   };
 
@@ -310,6 +417,41 @@ export default function Messenger() {
 
             </div>
 
+            {/* Active Lock State Banner */}
+            {(() => {
+              const isPremiumOrVip = userProfile?.isPremium || userProfile?.isVip;
+              const isChatUnlocked = selectedMatch?.unlockedUntil && new Date(selectedMatch.unlockedUntil).getTime() > Date.now();
+              
+              if (!isPremiumOrVip && !isChatUnlocked) {
+                return (
+                  <div className="bg-amber-50/95 border-b border-amber-100 px-4 py-2 text-center text-[11px] text-amber-800 font-semibold flex justify-between items-center shrink-0">
+                    <span className="flex items-center space-x-1">
+                      <span>🔒 Mode Limité : Max 1 msg/destinataire/jour. Pas de chiffres ni de liens.</span>
+                    </span>
+                    <button 
+                      type="button"
+                      onClick={() => setShowUnlockModal(true)}
+                      className="bg-amber-600 text-white px-2.5 py-1 rounded-full text-[9px] font-bold hover:bg-amber-700 transition cursor-pointer"
+                    >
+                      Débloquer (250 FCFA)
+                    </button>
+                  </div>
+                );
+              } else if (isChatUnlocked) {
+                return (
+                  <div className="bg-green-50/95 border-b border-green-100 px-4 py-2 text-center text-[11px] text-green-800 font-semibold flex justify-between items-center shrink-0">
+                    <span className="flex items-center space-x-1">
+                      <span>🔑 Chat Débloqué pendant 24h ! Messages, numéros et liens illimités.</span>
+                    </span>
+                    <span className="text-[9px] font-mono bg-green-200/50 text-green-700 px-2 py-0.5 rounded-full">
+                      Actif jusqu'au {new Date(selectedMatch.unlockedUntil!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Message Stream */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {messages.map((msg) => {
@@ -412,11 +554,34 @@ export default function Messenger() {
 
             {/* Input Form Box & Rich action tray */}
             <form onSubmit={handleSendMessage} className="p-4 backdrop-blur-sm bg-white/30 border-t border-rose-100/50 flex flex-col space-y-2">
+              
+              {errorMessage && (
+                <div className="p-3 bg-red-50 text-red-700 text-xs rounded-2xl border border-red-100 flex flex-col space-y-2 animate-fade-in">
+                  <p className="font-semibold">{errorMessage}</p>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowUnlockModal(true)}
+                      className="bg-brand text-white text-[10px] font-extrabold px-3.5 py-1.5 rounded-full cursor-pointer hover:scale-[1.02] transition shadow"
+                    >
+                      🔓 Débloquer ce chat (250 FCFA)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/premium')}
+                      className="bg-[#D4AF37] text-white text-[10px] font-extrabold px-3.5 py-1.5 rounded-full cursor-pointer hover:scale-[1.02] transition shadow"
+                    >
+                      ⭐ Devenir Premium
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
                 <input 
                   type="text"
                   value={inputText}
-                  onChange={e => setInputText(e.target.value)}
+                  onChange={e => { setInputText(e.target.value); setErrorMessage(''); }}
                   placeholder="Écrivez votre message..."
                   className="flex-1 backdrop-blur-sm bg-white/50 border border-rose-100/30 px-4 py-3 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                 />
@@ -477,6 +642,141 @@ export default function Messenger() {
             userId={selectedProfileUid} 
             onClose={() => setSelectedProfileUid(null)} 
           />
+        )}
+      </AnimatePresence>
+
+      {/* 250 FCFA Paid Conversation Unlock Modal */}
+      <AnimatePresence>
+        {showUnlockModal && selectedMatch && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              className="bg-white rounded-3xl w-full max-w-md p-6 relative overflow-hidden shadow-2xl text-gray-800"
+            >
+              <button 
+                onClick={() => setShowUnlockModal(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="text-center space-y-3 mb-6">
+                <span className="text-4xl">🔐</span>
+                <h3 className="text-xl font-serif font-bold text-gray-900">Débloquer la conversation</h3>
+                <p className="text-xs text-gray-500">
+                  Débloquez ce chat avec <strong className="text-brand">{selectedMatch.targetUser.displayName}</strong> pendant 24h. Profitez de messages illimités, et de l'envoi de contacts téléphoniques et de liens !
+                </p>
+                <div className="bg-pink-50 text-brand font-bold py-2 rounded-xl text-lg font-mono">
+                  Tarif : 250 FCFA (24 Heures)
+                </div>
+              </div>
+
+              {unlockSuccess ? (
+                <div className="text-center py-6 space-y-3 animate-fade-in">
+                  <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
+                    ✓
+                  </div>
+                  <h4 className="font-bold text-green-700">Paiement validé avec succès !</h4>
+                  <p className="text-xs text-gray-500">La conversation est débloquée pour 24 heures.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleUnlockPayment} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Méthode de paiement mobile</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setUnlockPaymentMethod('moneyfusion')}
+                        className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center space-y-1 cursor-pointer ${
+                          unlockPaymentMethod === 'moneyfusion' ? 'border-brand bg-pink-50/50 text-brand font-bold' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-xs">Fusion</span>
+                        <span className="text-[8px] uppercase tracking-wider text-gray-400 font-mono">Mobile</span>
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setUnlockPaymentMethod('orange')}
+                        className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center space-y-1 cursor-pointer ${
+                          unlockPaymentMethod === 'orange' ? 'border-brand bg-pink-50/50 text-brand font-bold' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-xs">🍊 Orange</span>
+                        <span className="text-[8px] uppercase tracking-wider text-gray-400 font-mono">OM</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setUnlockPaymentMethod('mtn')}
+                        className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center space-y-1 cursor-pointer ${
+                          unlockPaymentMethod === 'mtn' ? 'border-brand bg-pink-50/50 text-brand font-bold' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-xs">⚡ MTN</span>
+                        <span className="text-[8px] uppercase tracking-wider text-gray-400 font-mono">Momo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setUnlockPaymentMethod('wave')}
+                        className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center space-y-1 cursor-pointer ${
+                          unlockPaymentMethod === 'wave' ? 'border-brand bg-pink-50/50 text-brand font-bold' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-xs">🌊 Wave</span>
+                        <span className="text-[8px] uppercase tracking-wider text-gray-400 font-mono">Pay</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Numéro de téléphone de débit
+                    </label>
+                    <div className="flex space-x-2">
+                      <select className="bg-gray-50 border border-gray-200 rounded-xl px-2 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand">
+                        <option value="221">🇸🇳 +221</option>
+                        <option value="225">🇨🇮 +225</option>
+                        <option value="237">🇨🇲 +237</option>
+                        <option value="229"> Benin </option>
+                      </select>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="770000000"
+                        value={unlockPhoneNumber}
+                        onChange={e => setUnlockPhoneNumber(e.target.value)}
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand text-gray-800"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={unlockLoading}
+                    className="w-full py-3 bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] text-white font-bold rounded-xl text-xs hover:scale-[1.01] transition shadow shadow-brand/15 cursor-pointer flex items-center justify-center"
+                  >
+                    {unlockLoading ? (
+                      <span className="flex items-center space-x-2">
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Validation en cours...</span>
+                      </span>
+                    ) : (
+                      "Confirmer le paiement (250 FCFA)"
+                    )}
+                  </button>
+                </form>
+              )}
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

@@ -44,6 +44,8 @@ export interface Match {
   createdAt: string;
   lastMessageAt?: string;
   lastMessageText?: string;
+  unlockedUntil?: string; // 24-hour temporary unlock timestamp
+  unlockedBy?: string;    // User UID who paid 250 FCFA
 }
 
 export interface Message {

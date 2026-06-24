@@ -93,7 +93,9 @@ function toSupabaseMatch(m: Partial<Match>) {
     users: m.users,
     created_at: m.createdAt,
     last_message_at: m.lastMessageAt,
-    last_message_text: m.lastMessageText
+    last_message_text: m.lastMessageText,
+    unlocked_until: m.unlockedUntil,
+    unlocked_by: m.unlockedBy
   };
 }
 
@@ -103,7 +105,9 @@ function fromSupabaseMatch(row: any): Match {
     users: row.users || [],
     createdAt: row.created_at,
     lastMessageAt: row.last_message_at,
-    lastMessageText: row.last_message_text
+    lastMessageText: row.last_message_text,
+    unlockedUntil: row.unlocked_until,
+    unlockedBy: row.unlocked_by
   };
 }
 
@@ -408,6 +412,68 @@ export const dbService = {
 
     // Firestore fallback
     await updateDoc(doc(db, 'matches', matchId), updatePayload);
+  },
+
+  async unlockConversation(matchId: string, userId: string): Promise<void> {
+    const twentyFourHoursFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const updatePayload = {
+      unlockedUntil: twentyFourHoursFromNow,
+      unlockedBy: userId
+    };
+
+    if (isSupabaseConfigured) {
+      try {
+        const { error = null } = await supabase
+          .from('matches')
+          .update({
+            unlocked_until: twentyFourHoursFromNow,
+            unlocked_by: userId
+          })
+          .eq('id', matchId);
+        if (error) throw error;
+        return;
+      } catch (err) {
+        console.error("Supabase unlockConversation error, trying firestore fallback:", err);
+      }
+    }
+
+    // Firestore fallback
+    await updateDoc(doc(db, 'matches', matchId), updatePayload);
+  },
+
+  async getSentMessagesCountToday(userId: string): Promise<{ total: number; conversationIds: string[] }> {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startIso = startOfToday.toISOString();
+
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('match_id')
+          .eq('sender_id', userId)
+          .gte('timestamp', startIso);
+        if (error) throw error;
+        if (data) {
+          const matchIds = data.map((d: any) => d.match_id);
+          const uniqueMatches = Array.from(new Set(matchIds)) as string[];
+          return { total: data.length, conversationIds: uniqueMatches };
+        }
+      } catch (err) {
+        console.error("Supabase getSentMessagesCountToday error, trying firestore fallback:", err);
+      }
+    }
+
+    const q = query(
+      collection(db, 'messages'),
+      where('senderId', '==', userId),
+      where('timestamp', '>=', startIso)
+    );
+    const snap = await getDocs(q);
+    const msgs = snap.docs.map(doc => doc.data() as Message);
+    const matchIds = msgs.map(m => m.matchId);
+    const uniqueMatches = Array.from(new Set(matchIds));
+    return { total: msgs.length, conversationIds: uniqueMatches };
   },
 
   // NOTIFICATIONS OPERATIONS
