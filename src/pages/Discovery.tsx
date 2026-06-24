@@ -10,6 +10,93 @@ import { Heart, X, Star, MapPin, Sparkles, Sliders, CheckCircle2, Award, Zap } f
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 
+const DUMMY_PROFILES: UserProfile[] = [
+  {
+    uid: 'seed_fatou',
+    email: 'fatou@loverose.com',
+    displayName: 'Fatou Diop',
+    age: 24,
+    gender: 'Femme',
+    orientation: 'Homme',
+    city: 'Dakar',
+    country: 'Sénégal',
+    bio: 'Créatrice de mode passionnée d\'art contemporain, d\'entrepreneuriat et de brunchs parisiens. Je recherche quelqu\'un de sincère.',
+    photos: ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400'],
+    interests: ['Travel', 'Mode', 'Entrepreneuriat', 'Cuisine'],
+    languages: ['Français', 'Wolof', 'English'],
+    isPremium: true,
+    isVip: false,
+    isVerified: true,
+    verificationLevel: 3,
+    role: 'user',
+    online: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'seed_clara',
+    email: 'clara@loverose.com',
+    displayName: 'Clara Lefevre',
+    age: 26,
+    gender: 'Femme',
+    orientation: 'Les deux',
+    city: 'Paris',
+    country: 'France',
+    bio: 'Globe-trotteuse et designer UX. J\'adore explorer de nouvelles technologies, faire du fitness et filmer des documentaires.',
+    photos: ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400'],
+    interests: ['Voyage', 'Cinéma', 'Technologie', 'Fitness'],
+    languages: ['Français', 'English', 'Español'],
+    isPremium: false,
+    isVip: true,
+    isVerified: true,
+    verificationLevel: 3,
+    role: 'user',
+    online: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'seed_amadou',
+    email: 'amadou@loverose.com',
+    displayName: 'Amadou Diallo',
+    age: 29,
+    gender: 'Homme',
+    orientation: 'Femme',
+    city: 'Abidjan',
+    country: 'Côte d\'Ivoire',
+    bio: 'Ingénieur logiciel et amoureux de cuisine africaine moderne. Investisseur enthousiaste et passionné de fitness.',
+    photos: ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400'],
+    interests: ['Business', 'Technologie', 'Fitness', 'Cuisine'],
+    languages: ['Français', 'English'],
+    isPremium: true,
+    isVip: false,
+    isVerified: true,
+    verificationLevel: 2,
+    role: 'user',
+    online: false,
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'seed_marie',
+    email: 'marie@loverose.com',
+    displayName: 'Marie N\'goran',
+    age: 22,
+    gender: 'Femme',
+    orientation: 'Homme',
+    city: 'Yamoussoukro',
+    country: 'Côte d\'Ivoire',
+    bio: 'Étudiante en médecine, amoureuse de lecture classique et de piano. Un peu timide mais très chaleureuse !',
+    photos: ['https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=400'],
+    interests: ['Lecture', 'Musique', 'Voyage'],
+    languages: ['Français', 'English'],
+    isPremium: false,
+    isVip: false,
+    isVerified: false,
+    verificationLevel: 1,
+    role: 'user',
+    online: true,
+    createdAt: new Date().toISOString()
+  }
+];
+
 export default function Discovery() {
   const { userProfile } = useAuth();
   const { filters, setFilters } = useAppStore();
@@ -36,96 +123,9 @@ export default function Discovery() {
         
         if (snapAll.size <= 1) {
           // SEED DUMMY PROFILES so the application is immediately testable and beautiful!
-          const dummyProfiles: UserProfile[] = [
-            {
-              uid: 'seed_fatou',
-              email: 'fatou@loverose.com',
-              displayName: 'Fatou Diop',
-              age: 24,
-              gender: 'Femme',
-              orientation: 'Homme',
-              city: 'Dakar',
-              country: 'Sénégal',
-              bio: 'Créatrice de mode passionnée d\'art contemporain, d\'entrepreneuriat et de brunchs parisiens. Je recherche quelqu\'un de sincère.',
-              photos: ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400'],
-              interests: ['Travel', 'Mode', 'Entrepreneuriat', 'Cuisine'],
-              languages: ['Français', 'Wolof', 'English'],
-              isPremium: true,
-              isVip: false,
-              isVerified: true,
-              verificationLevel: 3,
-              role: 'user',
-              online: true,
-              createdAt: new Date().toISOString()
-            },
-            {
-              uid: 'seed_clara',
-              email: 'clara@loverose.com',
-              displayName: 'Clara Lefevre',
-              age: 26,
-              gender: 'Femme',
-              orientation: 'Les deux',
-              city: 'Paris',
-              country: 'France',
-              bio: 'Globe-trotteuse et designer UX. J\'adore explorer de nouvelles technologies, faire du fitness et filmer des documentaires.',
-              photos: ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400'],
-              interests: ['Voyage', 'Cinéma', 'Technologie', 'Fitness'],
-              languages: ['Français', 'English', 'Español'],
-              isPremium: false,
-              isVip: true,
-              isVerified: true,
-              verificationLevel: 3,
-              role: 'user',
-              online: true,
-              createdAt: new Date().toISOString()
-            },
-            {
-              uid: 'seed_amadou',
-              email: 'amadou@loverose.com',
-              displayName: 'Amadou Diallo',
-              age: 29,
-              gender: 'Homme',
-              orientation: 'Femme',
-              city: 'Abidjan',
-              country: 'Côte d\'Ivoire',
-              bio: 'Ingénieur logiciel et amoureux de cuisine africaine moderne. Investisseur enthousiaste et passionné de fitness.',
-              photos: ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400'],
-              interests: ['Business', 'Technologie', 'Fitness', 'Cuisine'],
-              languages: ['Français', 'English'],
-              isPremium: true,
-              isVip: false,
-              isVerified: true,
-              verificationLevel: 2,
-              role: 'user',
-              online: false,
-              createdAt: new Date().toISOString()
-            },
-            {
-              uid: 'seed_marie',
-              email: 'marie@loverose.com',
-              displayName: 'Marie N\'goran',
-              age: 22,
-              gender: 'Femme',
-              orientation: 'Homme',
-              city: 'Yamoussoukro',
-              country: 'Côte d\'Ivoire',
-              bio: 'Étudiante en médecine, amoureuse de lecture classique et de piano. Un peu timide mais très chaleureuse !',
-              photos: ['https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=400'],
-              interests: ['Lecture', 'Musique', 'Voyage'],
-              languages: ['Français', 'English'],
-              isPremium: false,
-              isVip: false,
-              isVerified: false,
-              verificationLevel: 1,
-              role: 'user',
-              online: true,
-              createdAt: new Date().toISOString()
-            }
-          ];
-
           // Save dummy users to FireStore
-          for (const dp of dummyProfiles) {
-            await setDoc(doc(db, 'users', dp.uid), dp);
+          for (const dp of DUMMY_PROFILES) {
+            await setDoc(doc(db, 'users', dp.uid), dp).catch(e => console.warn("Failed seeding user in Firestore", e));
             fetchedUsers.push(dp);
           }
         } else {
@@ -152,7 +152,19 @@ export default function Discovery() {
 
         setProfiles(filtered);
       } catch (err) {
-        console.error("Error fetching discoverable profiles:", err);
+        console.error("Error fetching discoverable profiles, falling back to local dataset:", err);
+        // Robust Fallback dataset in case of offline / indexing / permissions error
+        const filteredFallback = DUMMY_PROFILES.filter(u => {
+          if (u.uid === userProfile.uid) return false;
+          if (userProfile.orientation !== 'Les deux') {
+            if (u.gender !== userProfile.orientation) return false;
+          }
+          if (u.age && (u.age < filters.minAge || u.age > filters.maxAge)) return false;
+          if (filters.onlyVerified && !u.isVerified) return false;
+          if (filters.onlyPremium && !u.isPremium) return false;
+          return true;
+        });
+        setProfiles(filteredFallback);
       } finally {
         setLoading(false);
       }

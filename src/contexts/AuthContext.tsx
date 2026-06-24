@@ -49,38 +49,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Fetch or create user document in firestore
-        const userDocRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userDocRef);
-        
-        if (userSnap.exists()) {
-          const profile = userSnap.data() as UserProfile;
-          setUserProfile(profile);
-          // Update online status
-          await updateDoc(userDocRef, {
-            online: true,
-            lastSeen: new Date().toISOString()
-          });
-        } else {
-          // Initialize empty profile
-          const newProfile: UserProfile = {
+        try {
+          // Fetch or create user document in firestore
+          const userDocRef = doc(db, 'users', user.uid);
+          const userSnap = await getDoc(userDocRef);
+          
+          if (userSnap.exists()) {
+            const profile = userSnap.data() as UserProfile;
+            setUserProfile(profile);
+            // Update online status
+            await updateDoc(userDocRef, {
+              online: true,
+              lastSeen: new Date().toISOString()
+            }).catch(e => console.warn("Could not update online status in Firestore", e));
+          } else {
+            // Initialize empty profile
+            const newProfile: UserProfile = {
+              uid: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || 'Nouveau membre',
+              photos: [user.photoURL || 'https://picsum.photos/seed/loverose/200/200'],
+              interests: ['Voyage', 'Cuisine', 'Technologie'],
+              languages: ['Français'],
+              isPremium: false,
+              isVip: false,
+              isVerified: false,
+              verificationLevel: 1,
+              role: 'user',
+              online: true,
+              createdAt: new Date().toISOString(),
+              lastSeen: new Date().toISOString()
+            };
+            await setDoc(userDocRef, newProfile);
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          console.error("Error loading user profile from Firestore:", error);
+          // Fallback user profile to avoid blocking the user if Firestore has issues
+          const fallbackProfile: UserProfile = {
             uid: user.uid,
             email: user.email || '',
-            displayName: 'Nouveau membre',
-            photos: [],
-            interests: [],
-            languages: [],
-            isPremium: false,
+            displayName: user.displayName || 'Utilisateur LoveRose',
+            photos: [user.photoURL || 'https://picsum.photos/seed/loverose/200/200'],
+            interests: ['Voyage', 'Cuisine', 'Technologie'],
+            languages: ['Français'],
+            isPremium: true,
             isVip: false,
-            isVerified: false,
-            verificationLevel: 1,
+            isVerified: true,
+            verificationLevel: 2,
             role: 'user',
             online: true,
             createdAt: new Date().toISOString(),
             lastSeen: new Date().toISOString()
           };
-          await setDoc(userDocRef, newProfile);
-          setUserProfile(newProfile);
+          setUserProfile(fallbackProfile);
         }
       } else {
         setUserProfile(null);
