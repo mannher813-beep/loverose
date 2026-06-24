@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Check, Mail, Heart, Sparkles, Image as ImageIcon, MapPin, User, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Check, Mail, Heart, Sparkles, Image as ImageIcon, MapPin, User, ChevronRight, ChevronLeft, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const INTERESTS_LIST = [
@@ -29,11 +29,13 @@ export default function Onboarding() {
     interests: [] as string[]
   });
 
+  const [profileInitialized, setProfileInitialized] = useState(false);
+
   // Load from firestore profile if already filled partially
   useEffect(() => {
-    if (userProfile) {
+    if (userProfile && !profileInitialized) {
       setFormData({
-        displayName: userProfile.displayName || '',
+        displayName: userProfile.displayName === 'Nouveau membre' ? '' : (userProfile.displayName || ''),
         birthDate: userProfile.birthDate || '',
         gender: userProfile.gender || 'Homme',
         orientation: userProfile.orientation || 'Femme',
@@ -42,30 +44,9 @@ export default function Onboarding() {
         photos: userProfile.photos || [],
         interests: userProfile.interests || []
       });
-      // Skip steps if details already filled
-      if (userProfile.displayName && userProfile.displayName !== 'Nouveau membre') {
-        setStep(2);
-      }
-      if (userProfile.birthDate) {
-        setStep(3);
-      }
-      if (userProfile.gender) {
-        setStep(4);
-      }
-      if (userProfile.orientation) {
-        setStep(5);
-      }
-      if (userProfile.city) {
-        setStep(6);
-      }
-      if (userProfile.photos && userProfile.photos.length > 0) {
-        setStep(7);
-      }
-      if (userProfile.interests && userProfile.interests.length > 0) {
-        setStep(8);
-      }
+      setProfileInitialized(true);
     }
-  }, [userProfile]);
+  }, [userProfile, profileInitialized]);
 
   // Save current state to firebase on change of major steps
   const saveCurrentStep = async (nextStep: number) => {
@@ -162,6 +143,31 @@ export default function Onboarding() {
         : [...prev.photos, url].slice(0, 6); // Max 6 photos
       return { ...prev, photos: updated };
     });
+  };
+
+  const handleOnboardingFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024 * 3) { // 3MB max
+      setError("La photo est trop lourde. Veuillez choisir une image de moins de 3 Mo.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setFormData(prev => {
+        // We can prepend this custom photo to the photos array.
+        // If there's already a base64 photo as the first photo, we can replace or append.
+        // Let's filter out standard placeholder/unsplashes if they want to use their own.
+        const filtered = prev.photos.filter(p => !p.startsWith('https://picsum.photos'));
+        const updated = [base64String, ...filtered].slice(0, 6);
+        return { ...prev, photos: updated };
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   // Preset gorgeous premium curated pictures (free vector & unsplash safe photos)
@@ -393,14 +399,37 @@ export default function Onboarding() {
                 className="space-y-4"
               >
                 <h2 className="text-2xl font-serif font-bold text-gray-800">Ajoutez votre plus belle photo</h2>
-                <p className="text-gray-500 text-sm mb-4">Une photo de profil principale est obligatoire. Choisissez parmi nos suggestions ou utilisez-les en guise de démo !</p>
+                <p className="text-gray-500 text-sm mb-4">Une photo de profil principale est obligatoire. Importez la vôtre ou choisissez parmi nos suggestions !</p>
                 
+                {/* Custom Photo Upload Box */}
+                <div className="bg-rose-50/20 border border-rose-100/30 p-4 rounded-3xl flex flex-col sm:flex-row items-center gap-4">
+                  <div className="relative w-16 h-16 rounded-2xl overflow-hidden border border-rose-100/40 bg-white flex items-center justify-center shadow-inner shrink-0">
+                    {formData.photos.length > 0 && formData.photos[0].startsWith('data:image') ? (
+                      <img src={formData.photos[0]} alt="Perso" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <ImageIcon size={24} className="text-gray-300" />
+                    )}
+                  </div>
+                  <div className="flex-1 text-center sm:text-left space-y-0.5">
+                    <h4 className="text-xs font-bold text-gray-800">Uploader votre propre photo réelle</h4>
+                    <p className="text-[10px] text-gray-400 leading-snug">Prenez ou choisissez un vrai cliché de vous.</p>
+                    <label className="inline-flex items-center space-x-1 px-3 py-1.5 bg-white hover:bg-rose-50/55 border border-rose-150/40 rounded-xl text-[10px] font-bold text-brand cursor-pointer shadow-sm transition-all mt-1">
+                      <Upload size={10} />
+                      <span>Choisir ma photo</span>
+                      <input type="file" accept="image/*" onChange={handleOnboardingFileChange} className="hidden" />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="text-xs font-bold text-gray-650 pt-2">Ou utilisez un de nos modèles :</div>
+
                 <div className="grid grid-cols-3 gap-3">
                   {PRESET_PHOTOS.map((url, idx) => {
                     const isSelected = formData.photos.includes(url);
                     return (
                       <button
                         key={idx}
+                        type="button"
                         onClick={() => addPresetPhoto(url)}
                         className={`relative aspect-square rounded-2xl overflow-hidden border-2 cursor-pointer transition-all duration-300 hover:scale-105 ${
                           isSelected ? 'border-brand ring-2 ring-brand/35' : 'border-rose-100/30 hover:opacity-90'

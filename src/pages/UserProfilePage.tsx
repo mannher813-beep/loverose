@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   User, Settings, ShieldCheck, Mail, Phone, Camera, Sparkles, EyeOff, Lock, Eye, AlertCircle, RefreshCw, LogOut, Upload, Image as ImageIcon
@@ -6,6 +6,11 @@ import {
 import { dbService } from '../services/db';
 import { VerificationRequest } from '../types';
 import { useNavigate } from 'react-router-dom';
+
+const INTERESTS_LIST = [
+  'Voyage', 'Musique', 'Sport', 'Business', 'Lecture', 
+  'Cuisine', 'Cinéma', 'Technologie', 'Mode', 'Fitness', 'Entrepreneuriat'
+];
 
 export default function UserProfilePage() {
   const { userProfile, updateProfileData, logout } = useAuth();
@@ -18,6 +23,10 @@ export default function UserProfilePage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Profile forms state
+  const [displayName, setDisplayName] = useState(userProfile?.displayName === 'Nouveau membre' ? '' : (userProfile?.displayName || ''));
+  const [city, setCity] = useState(userProfile?.city || '');
+  const [country, setCountry] = useState(userProfile?.country || '');
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(userProfile?.interests || []);
   const [bio, setBio] = useState(userProfile?.bio || '');
   const [height, setHeight] = useState(userProfile?.height || 170);
   const [profession, setProfession] = useState(userProfile?.profession || '');
@@ -33,6 +42,24 @@ export default function UserProfilePage() {
   // Verification states
   const [selfieUrl, setSelfieUrl] = useState('');
   const [verificationResult, setVerificationResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (userProfile) {
+      setBio(userProfile.bio || '');
+      setHeight(userProfile.height || 170);
+      setProfession(userProfile.profession || '');
+      setEducation(userProfile.education || '');
+      setLanguages(userProfile.languages?.join(', ') || '');
+      setPhotoPreview(userProfile.photos?.[0] || null);
+      setHideAge(userProfile.hideAge || false);
+      setHideDistance(userProfile.hideDistance || false);
+      setHideOnline(userProfile.hideOnline || false);
+      setDisplayName(userProfile.displayName === 'Nouveau membre' ? '' : (userProfile.displayName || ''));
+      setCity(userProfile.city || '');
+      setCountry(userProfile.country || '');
+      setSelectedInterests(userProfile.interests || []);
+    }
+  }, [userProfile?.uid]);
 
   if (!userProfile) {
     return (
@@ -79,6 +106,12 @@ export default function UserProfilePage() {
     setSuccess('');
     setLoading(true);
 
+    if (!displayName.trim()) {
+      setError("Le prénom ne peut pas être vide.");
+      setLoading(false);
+      return;
+    }
+
     if (bio.length > 500) {
       setError("Votre bio ne doit pas dépasser 500 caractères.");
       setLoading(false);
@@ -87,6 +120,10 @@ export default function UserProfilePage() {
 
     try {
       await updateProfileData({
+        displayName: displayName.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        interests: selectedInterests,
         bio,
         height: Number(height),
         profession,
@@ -307,6 +344,39 @@ export default function UserProfilePage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-750 mb-1">Prénom</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={e => setDisplayName(e.target.value)}
+                  placeholder="Votre prénom"
+                  className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white transition-all text-gray-700"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-750 mb-1">Ville</label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={e => setCity(e.target.value)}
+                  placeholder="Ex: Douala, Paris"
+                  className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white transition-all text-gray-700"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-750 mb-1">Pays</label>
+                <input
+                  type="text"
+                  value={country}
+                  onChange={e => setCountry(e.target.value)}
+                  placeholder="Ex: Cameroun, France"
+                  className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white transition-all text-gray-700"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-gray-750 mb-1">Votre biographie (Max 500 caractères)</label>
               <textarea
@@ -364,6 +434,36 @@ export default function UserProfilePage() {
                   placeholder="Ex: Français, Anglais"
                   className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white transition-all"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-750 mb-1.5">Centres d'intérêt (Sélectionnez au moins 2)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {INTERESTS_LIST.map((interest) => {
+                  const isSelected = selectedInterests.includes(interest);
+                  return (
+                    <button
+                      key={interest}
+                      type="button"
+                      onClick={() => {
+                        setSelectedInterests(prev => {
+                          const exists = prev.includes(interest);
+                          return exists 
+                            ? prev.filter(i => i !== interest)
+                            : [...prev, interest];
+                        });
+                      }}
+                      className={`px-3 py-1.5 rounded-full border text-[10px] font-semibold transition cursor-pointer ${
+                        isSelected 
+                          ? 'bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] border-[#E85D75] text-white shadow-sm' 
+                          : 'bg-white/30 border-rose-100/30 text-gray-600 hover:border-rose-200/50 hover:bg-white/50'
+                      }`}
+                    >
+                      {interest}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
