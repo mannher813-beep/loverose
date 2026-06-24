@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' || 
+        getUserRole() == 'admin'
+      );
+    }
+
+    function isModerator() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'moderator' || 
+        request.auth.token.role == 'admin' ||
+        getUserRole() == 'moderator' || 
+        getUserRole() == 'admin'
+      );
+    }
+
+    // Rules for USERS collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && (isOwner(userId) || isModerator());
+      allow delete: if isAuthenticated() && (isOwner(userId) || isAdmin());
+    }
+
+    // Rules for LIKES collection
+    match /likes/{likeId} {
+      allow read: if isAuthenticated() && (
+        resource.data.fromUid == request.auth.uid || 
+        resource.data.toUid == request.auth.uid || 
+        isModerator()
+      );
+      allow create: if isAuthenticated() && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if isAuthenticated() && (resource.data.fromUid == request.auth.uid || isAdmin());
+    }
+
+    // Rules for MATCHES collection
+    match /matches/{matchId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid in resource.data.users || 
+        isModerator()
+      );
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.users;
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.users || isModerator());
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // Rules for MESSAGES collection
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        resource.data.senderId == request.auth.uid || 
+        isModerator() ||
+        exists(/databases/$(database)/documents/matches/$(resource.data.matchId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/matches/$(resource.data.matchId)).data.users
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.senderId == request.auth.uid &&
+        exists(/databases/$(database)/documents/matches/$(request.resource.data.matchId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/matches/$(request.resource.data.matchId)).data.users
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.senderId == request.auth.uid || 
+        isAdmin()
+      );
+    }
+
+    // Rules for REPORTS collection
+    match /reports/{reportId} {
+      allow read: if isModerator();
+      allow create: if isAuthenticated() && request.resource.data.reporterId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Rules for BLOCKS collection
+    match /blocks/{blockId} {
+      allow read: if isAuthenticated() && (resource.data.blockerId == request.auth.uid || isModerator());
+      allow create: if isAuthenticated() && request.resource.data.blockerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.blockerId == request.auth.uid;
+    }
+
+    // Rules for VERIFICATION REQUESTS collection
+    match /verification_requests/{requestId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isModerator());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isModerator();
+      allow delete: if isAdmin();
+    }
+
+    // Rules for PAYMENTS and SUBSCRIPTIONS collection
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isModerator());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isModerator());
+      allow create, update: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Rules for NOTIFICATIONS collection
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
