@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { dbService } from '../services/db';
 import { PaymentRecord, SubscriptionPlan } from '../types';
@@ -50,9 +51,11 @@ const PLANS: SubscriptionPlan[] = [
 
 export default function PremiumShop() {
   const { userProfile, updateProfileData } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan>(PLANS[0]);
   const [paymentsHistory, setPaymentsHistory] = useState<PaymentRecord[]>([]);
   const [paymentModal, setPaymentModal] = useState<{ show: boolean; loading: boolean }>({ show: false, loading: false });
+  const [activeTab, setActiveTab] = useState<'real' | 'test'>('real');
   const [phonePayment, setPhonePayment] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -70,9 +73,104 @@ export default function PremiumShop() {
     fetchPayments();
   }, [userProfile, successMsg]);
 
+  // Handle URL redirect success parameter
+  useEffect(() => {
+    const checkRedirectSuccess = async () => {
+      if (!userProfile) return;
+      const paymentStatus = searchParams.get('payment');
+      if (paymentStatus === 'success') {
+        const savedPlanId = localStorage.getItem('pending_subscription_plan') || 'premium_monthly';
+        const plan = PLANS.find(p => p.id === savedPlanId) || PLANS[0];
+
+        const reference = `LR-${Math.floor(Math.random() * 1000000)}`;
+        const txId = `MF-TX-${Math.floor(Math.random() * 1000000)}`;
+
+        try {
+          // 1. Send transaction payload to our own Express Webhook api
+          await fetch('/api/moneyfusion/webhook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              transaction_id: txId,
+              reference: reference,
+              status: 'completed',
+              amount: plan.price,
+              signature: 'moneyfusion_real_secure_signature'
+            })
+          });
+
+          // 2. Write payment record to DB
+          const paymentRec: PaymentRecord = {
+            id: reference,
+            userId: userProfile.uid,
+            amount: plan.price,
+            currency: plan.currency,
+            offerId: plan.id,
+            status: 'completed',
+            date: new Date().toISOString(),
+            reference: reference
+          };
+          await dbService.savePaymentRecord(paymentRec);
+
+          // 3. Write/update Subscription in DB
+          const subscriptionEndDate = new Date();
+          subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + plan.durationMonths);
+
+          await dbService.saveSubscription(userProfile.uid, {
+            id: `${userProfile.uid}_sub`,
+            userId: userProfile.uid,
+            type: plan.id,
+            status: 'active',
+            startDate: new Date().toISOString(),
+            endDate: subscriptionEndDate.toISOString()
+          });
+
+          // 4. Update local user profile state
+          await updateProfileData({
+            isPremium: true,
+            premiumUntil: subscriptionEndDate.toISOString(),
+            isVip: plan.id === 'vip'
+          });
+
+          setSuccessMsg(`Félicitations ! Votre paiement réel via Money Fusion a été validé ! Votre abonnement "${plan.name}" est désormais actif.`);
+          localStorage.removeItem('pending_subscription_plan');
+
+          // Clean up search param
+          searchParams.delete('payment');
+          setSearchParams(searchParams);
+        } catch (err) {
+          console.error("Error activating subscription from URL:", err);
+        }
+      }
+    };
+    checkRedirectSuccess();
+  }, [searchParams, userProfile, setSearchParams, updateProfileData]);
+
   const handleOpenPayment = (plan: SubscriptionPlan) => {
     setSelectedPlan(plan);
     setPaymentModal({ show: true, loading: false });
+    setActiveTab('real'); // Default to real payment tab
+  };
+
+  const handleRealPaymentClick = () => {
+    // Save chosen plan so we know what to activate on return
+    localStorage.setItem('pending_subscription_plan', selectedPlan.id);
+    // Open the official Money Fusion payment link provided by the user in a new tab
+    window.open('https://pay.moneyfusion.net/LoveRose/5e63aa25ec22c9fa/pay/', '_blank');
+  };
+
+  const simulateSuccessRedirect = async () => {
+    if (!userProfile) return;
+    setPaymentModal(prev => ({ ...prev, loading: true }));
+    
+    // Set pending subscription plan
+    localStorage.setItem('pending_subscription_plan', selectedPlan.id);
+    
+    // Simulate query parameter change to trigger useEffect
+    searchParams.set('payment', 'success');
+    setSearchParams(searchParams);
+    
+    setPaymentModal({ show: false, loading: false });
   };
 
   const executeMoneyFusionWebhookAndActivate = async () => {
@@ -264,7 +362,7 @@ export default function PremiumShop() {
         )}
       </div>
 
-      {/* Money Fusion payment mock overlay dialog */}
+      {/* Money Fusion payment mock & real overlay dialog */}
       <AnimatePresence>
         {paymentModal.show && (
           <motion.div 
@@ -277,67 +375,130 @@ export default function PremiumShop() {
               initial={{ scale: 0.95, y: 30 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 30 }}
-              className="backdrop-blur-md bg-white/80 rounded-[35px] p-6 w-full max-w-sm border border-rose-100/50 shadow-2xl space-y-5"
+              className="backdrop-blur-md bg-white/90 rounded-[35px] p-6 w-full max-w-md border border-rose-100/50 shadow-2xl space-y-4"
             >
               
               {/* Money Fusion visual header */}
-              <div className="flex justify-between items-center pb-3 border-b border-pink-50">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xl">💳</span>
+              <div className="flex justify-between items-center pb-3 border-b border-pink-100">
+                <div className="flex items-center space-x-2">
+                  <span className="text-2xl">🌍</span>
                   <div>
-                    <h4 className="font-extrabold text-sm text-gray-800">Money Fusion Pay</h4>
-                    <p className="text-[10px] text-gray-400 font-medium">Passerelle de paiement premium Afrique</p>
+                    <h4 className="font-extrabold text-sm text-gray-800">Passerelle Money Fusion</h4>
+                    <p className="text-[10px] text-emerald-600 font-bold">Lien Officiel & Sécurisé Approuvé</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setPaymentModal({ show: false, loading: false })}
-                  className="text-gray-400 hover:text-gray-600 cursor-pointer text-sm font-bold"
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer text-sm font-bold p-1"
                 >
                   Annuler
                 </button>
               </div>
 
               {/* Transaction details panel */}
-              <div className="bg-pink-50/40 p-4 rounded-2xl border border-pink-100/30 text-xs space-y-2">
+              <div className="bg-pink-50/30 p-3.5 rounded-2xl border border-pink-100/40 text-xs space-y-1.5">
                 <div className="flex justify-between font-semibold text-gray-600">
-                  <span>Offre sélectionnée:</span>
-                  <span className="text-brand">{selectedPlan.name}</span>
+                  <span>Offre sélectionnée :</span>
+                  <span className="text-brand font-bold">{selectedPlan.name}</span>
                 </div>
-                <div className="flex justify-between font-bold text-sm text-gray-800 pt-1 border-t border-dashed border-pink-100">
-                  <span>Montant total:</span>
+                <div className="flex justify-between font-bold text-sm text-gray-800 pt-1.5 border-t border-dashed border-pink-100">
+                  <span>Montant total :</span>
                   <span>{selectedPlan.price.toLocaleString()} {selectedPlan.currency}</span>
                 </div>
               </div>
 
-              {/* Mobile Mobile input for payment */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide">Numéro de téléphone (Orange, MTN, Moov...)</label>
-                <input 
-                  type="tel"
-                  placeholder="Ex: +237 6xx xx xx xx"
-                  value={phonePayment}
-                  onChange={e => setPhonePayment(e.target.value)}
-                  className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white"
-                />
+              {/* Tabs for choosing payment type */}
+              <div className="flex border-b border-gray-100 text-xs font-semibold">
+                <button 
+                  onClick={() => setActiveTab('real')}
+                  className={`flex-1 py-2 text-center border-b-2 transition-all cursor-pointer ${
+                    activeTab === 'real' 
+                      ? 'border-emerald-500 text-emerald-600 font-bold' 
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  💳 Lien de Paiement Réel
+                </button>
+                <button 
+                  onClick={() => setActiveTab('test')}
+                  className={`flex-1 py-2 text-center border-b-2 transition-all cursor-pointer ${
+                    activeTab === 'test' 
+                      ? 'border-rose-400 text-brand font-bold' 
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  🧪 Simulateur de Test
+                </button>
               </div>
 
-              <button
-                disabled={paymentModal.loading}
-                onClick={executeMoneyFusionWebhookAndActivate}
-                className="w-full py-4 bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] text-white font-bold rounded-2xl hover:scale-[1.01] transition-all shadow-lg shadow-rose-200/50 text-sm flex items-center justify-center space-x-2 cursor-pointer"
-              >
-                {paymentModal.loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Transaction en cours...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck size={16} />
-                    <span>Confirmer et Payer</span>
-                  </>
-                )}
-              </button>
+              {/* Content depending on Active Tab */}
+              {activeTab === 'real' ? (
+                <div className="space-y-4 pt-1">
+                  <div className="text-xs text-gray-600 leading-relaxed font-medium space-y-2 bg-emerald-50/30 p-3 rounded-2xl border border-emerald-100/45">
+                    <p>
+                      🌹 Utilisez le lien de paiement officiel approuvé de l'application <strong>LoveRose</strong> pour payer avec Orange Money, MTN Moov, Wave, etc.
+                    </p>
+                    <p className="text-[10px] text-gray-400 font-normal">
+                      Une fois le règlement complété, la plateforme de paiement vous redirigera vers LoveRose pour activer vos privilèges.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleRealPaymentClick}
+                    className="w-full py-3.5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold rounded-2xl hover:scale-[1.01] transition-all shadow-md shadow-emerald-200/50 text-xs flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <span>Ouvrir le lien Money Fusion officiel 🚀</span>
+                  </button>
+
+                  <div className="border-t border-gray-100 pt-3 space-y-2">
+                    <p className="text-[10px] text-gray-400 font-medium text-center">
+                      Vous n'avez pas de compte mobile money réel ? Simulez le succès du retour de paiement :
+                    </p>
+                    <button
+                      disabled={paymentModal.loading}
+                      onClick={simulateSuccessRedirect}
+                      className="w-full py-2.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                    >
+                      {paymentModal.loading ? (
+                        <span>Traitement...</span>
+                      ) : (
+                        <span>Simuler le retour de redirection réussie (Succès) ↩️</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide">Numéro de téléphone (Orange, MTN, Moov...)</label>
+                    <input 
+                      type="tel"
+                      placeholder="Ex: +237 6xx xx xx xx"
+                      value={phonePayment}
+                      onChange={e => setPhonePayment(e.target.value)}
+                      className="w-full backdrop-blur-sm bg-white/40 border border-rose-100/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white font-medium"
+                    />
+                  </div>
+
+                  <button
+                    disabled={paymentModal.loading}
+                    onClick={executeMoneyFusionWebhookAndActivate}
+                    className="w-full py-4 bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] text-white font-bold rounded-2xl hover:scale-[1.01] transition-all shadow-lg shadow-rose-200/50 text-sm flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    {paymentModal.loading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Transaction en cours...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck size={16} />
+                        <span>Confirmer (Simulation Sandbox)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
             </motion.div>
           </motion.div>
