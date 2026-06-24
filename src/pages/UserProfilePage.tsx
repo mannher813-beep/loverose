@@ -3,8 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   User, Settings, ShieldCheck, Mail, Phone, Camera, Sparkles, EyeOff, Lock, Eye, AlertCircle, RefreshCw, LogOut, Upload, Image as ImageIcon
 } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService } from '../services/db';
 import { VerificationRequest } from '../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -174,7 +173,7 @@ export default function UserProfilePage() {
             level: 3,
             createdAt: new Date().toISOString()
           };
-          await setDoc(doc(db, 'verification_requests', reqId), vRequest);
+          await dbService.saveVerificationRequest(vRequest);
 
           // Update user profile verified badges
           await updateProfileData({

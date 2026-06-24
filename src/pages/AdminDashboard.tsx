@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
-  collection, query, onSnapshot, doc, updateDoc, deleteDoc, getDocs 
-} from 'firebase/firestore';
-import { db } from '../firebase/config';
+  dbService, 
+  subscribeAllUsers, 
+  subscribeAllReports, 
+  subscribeAllVerifications, 
+  updateVerificationRequestStatus 
+} from '../services/db';
 import { UserProfile, Report, VerificationRequest } from '../types';
 import { 
   Users, AlertTriangle, ShieldAlert, BadgePercent, CheckCircle, Ban, ArrowDownToLine, TrendingUp, BarChart2, Award 
@@ -22,16 +25,16 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (userProfile?.role !== 'admin') return;
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setUsersList(snap.docs.map(doc => doc.data() as UserProfile));
+    const unsubUsers = subscribeAllUsers((users) => {
+      setUsersList(users);
     });
 
-    const unsubReports = onSnapshot(collection(db, 'reports'), (snap) => {
-      setReportsList(snap.docs.map(doc => doc.data() as Report));
+    const unsubReports = subscribeAllReports((reports) => {
+      setReportsList(reports);
     });
 
-    const unsubVerifications = onSnapshot(collection(db, 'verification_requests'), (snap) => {
-      setVerificationsList(snap.docs.map(doc => doc.data() as VerificationRequest));
+    const unsubVerifications = subscribeAllVerifications((verifs) => {
+      setVerificationsList(verifs);
     });
 
     return () => {
@@ -55,7 +58,7 @@ export default function AdminDashboard() {
 
   const handleUpdateRole = async (userId: string, newRole: 'user' | 'moderator' | 'admin') => {
     try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      await dbService.updateUserProfile(userId, { role: newRole });
     } catch (err) {
       console.error("Error updating role:", err);
     }
@@ -63,7 +66,7 @@ export default function AdminDashboard() {
 
   const handleTogglePremium = async (userId: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { isPremium: !currentStatus });
+      await dbService.updateUserProfile(userId, { isPremium: !currentStatus });
     } catch (err) {
       console.error("Error updating premium status:", err);
     }
@@ -71,13 +74,11 @@ export default function AdminDashboard() {
 
   const handleApproveVerification = async (userId: string, reqId: string) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
+      await dbService.updateUserProfile(userId, {
         isVerified: true,
         verificationLevel: 3
       });
-      await updateDoc(doc(db, 'verification_requests', reqId), {
-        status: 'approved'
-      });
+      await updateVerificationRequestStatus(reqId, 'approved');
     } catch (err) {
       console.error("Error approving verification:", err);
     }

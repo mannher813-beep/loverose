@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppStore } from '../store/appStore';
-import { 
-  collection, query, where, getDocs, addDoc, doc, setDoc, updateDoc, serverTimestamp, getDoc 
-} from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService } from '../services/db';
 import { UserProfile, Like, Match } from '../types';
 import { Heart, X, Star, MapPin, Sparkles, Sliders, CheckCircle2, Award, Zap, Info } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
@@ -30,14 +27,7 @@ export default function Discovery() {
       if (!userProfile) return;
       setLoading(true);
       try {
-        const usersRef = collection(db, 'users');
-        const qAll = query(usersRef);
-        const snapAll = await getDocs(qAll);
-        
-        // Exclude current user, and clean any leftover dummy seed accounts
-        const fetchedUsers = snapAll.docs
-          .map(d => d.data() as UserProfile)
-          .filter(u => u.uid !== userProfile.uid && !u.uid.startsWith('seed_') && !u.email.endsWith('@loverose.com'));
+        const fetchedUsers = await dbService.fetchDiscoverableProfiles(userProfile);
 
         // Apply frontend filters
         const filtered = fetchedUsers.filter(u => {
@@ -79,9 +69,9 @@ export default function Discovery() {
     console.log(`Swiped ${direction} on user: ${targetUser.displayName}`);
 
     try {
-      // 1. Log the Like document in FireStore
+      // 1. Log the Like document in DB
       const likeId = `${userProfile.uid}_${targetUser.uid}`;
-      await setDoc(doc(db, 'likes', likeId), {
+      await dbService.saveLike({
         id: likeId,
         fromUid: userProfile.uid,
         toUid: targetUser.uid,
@@ -90,12 +80,9 @@ export default function Discovery() {
       });
 
       // 2. Check for matching Like (Target user liked us)
-      // To simulate high-fidelity matches for seeded users, we trigger a match if we Like or SuperLike them!
-      const reciprocalLikeRef = doc(db, 'likes', `${targetUser.uid}_${userProfile.uid}`);
-      const reciprocalSnap = await getDoc(reciprocalLikeRef);
-
+      const hasReciprocal = await dbService.checkReciprocalLike(userProfile.uid, targetUser.uid);
       const isMatch = direction !== 'pass' && (
-        reciprocalSnap.exists() && reciprocalSnap.data().type !== 'pass' ||
+        hasReciprocal ||
         targetUser.uid.startsWith('seed_') // auto match seeded users for excellent user experience
       );
 
@@ -110,7 +97,7 @@ export default function Discovery() {
           lastMessageText: "Vous avez un match ! Envoyez le premier message."
         };
 
-        await setDoc(doc(db, 'matches', matchId), newMatch);
+        await dbService.saveMatch(newMatch);
         
         // Trigger Match Popup overlay
         setMatchPopup({ show: true, matchedUser: targetUser });

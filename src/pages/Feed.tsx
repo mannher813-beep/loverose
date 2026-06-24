@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, addDoc, doc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService, subscribePosts } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
 import { Post, PostComment } from '../types';
 import { 
@@ -28,22 +27,14 @@ export default function FeedPage() {
   // Load posts in real-time
   useEffect(() => {
     setLoading(true);
-    const q = collection(db, 'posts');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Post));
-      // Sort posts in memory by creation date descending
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      
+    const unsubscribe = subscribePosts(async (list) => {
       // If there are no posts, seed 2 elegant dating posts to make the screen alive & beautiful
       if (list.length === 0 && userProfile) {
-        seedInitialPosts();
+        await seedInitialPosts();
       } else {
         setPosts(list);
         setLoading(false);
       }
-    }, (err) => {
-      console.error("Feed posts snapshot error:", err);
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -85,7 +76,7 @@ export default function FeedPage() {
 
       for (const p of postsToSeed) {
         // Also register authors so they can be visited
-        await setDoc(doc(db, 'users', p.authorId), {
+        await dbService.saveUserProfile({
           uid: p.authorId,
           email: `${p.authorId}@loverose.com`,
           displayName: p.authorName,
@@ -96,6 +87,8 @@ export default function FeedPage() {
           country: 'Sénégal',
           isVerified: true,
           isPremium: false,
+          isVip: false,
+          role: 'user',
           verificationLevel: 2,
           interests: ['Cuisine', 'Nature', 'Randonnée', 'Rencontres'],
           languages: ['Français'],
@@ -103,7 +96,7 @@ export default function FeedPage() {
           createdAt: new Date().toISOString()
         });
 
-        await addDoc(collection(db, 'posts'), p);
+        await dbService.savePost(p);
       }
     } catch (err) {
       console.warn("Failed seeding initial posts", err);
@@ -146,7 +139,7 @@ export default function FeedPage() {
         createdAt: new Date().toISOString()
       };
 
-      await addDoc(collection(db, 'posts'), newPost);
+      await dbService.savePost(newPost);
       
       // Reset inputs
       setNewPostText('');
@@ -161,22 +154,15 @@ export default function FeedPage() {
   const handleLikePost = async (post: Post) => {
     if (!userProfile) return;
     const isLiked = post.likes.includes(userProfile.uid);
-    const postRef = doc(db, 'posts', post.id);
 
     try {
-      if (isLiked) {
-        await updateDoc(postRef, {
-          likes: arrayRemove(userProfile.uid)
-        });
-      } else {
-        await updateDoc(postRef, {
-          likes: arrayUnion(userProfile.uid)
-        });
+      await dbService.likePost(post, userProfile.uid);
 
+      if (!isLiked) {
         // Push a notification to the author if it's someone else
         if (post.authorId !== userProfile.uid) {
           const notifId = `like_post_${post.id}_${userProfile.uid}`;
-          await setDoc(doc(db, 'notifications', notifId), {
+          await dbService.saveNotification({
             id: notifId,
             userId: post.authorId,
             type: 'like',
@@ -200,7 +186,6 @@ export default function FeedPage() {
     const commentText = commentInputs[postId];
     if (!commentText || !commentText.trim()) return;
 
-    const postRef = doc(db, 'posts', postId);
     const newComment: PostComment = {
       id: `comm_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       authorId: userProfile.uid,
@@ -211,9 +196,7 @@ export default function FeedPage() {
     };
 
     try {
-      await updateDoc(postRef, {
-        comments: arrayUnion(newComment)
-      });
+      await dbService.addPostComment(post, newComment);
 
       // Reset specific comment input
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
@@ -221,7 +204,7 @@ export default function FeedPage() {
       // Notify post author
       if (post.authorId !== userProfile.uid) {
         const notifId = `comment_post_${postId}_${Date.now()}`;
-        await setDoc(doc(db, 'notifications', notifId), {
+        await dbService.saveNotification({
           id: notifId,
           userId: post.authorId,
           type: 'message',

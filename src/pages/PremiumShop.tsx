@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService } from '../services/db';
 import { PaymentRecord, SubscriptionPlan } from '../types';
 import { Check, Sparkles, Award, Zap, ShieldCheck, ArrowRight, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -57,15 +56,12 @@ export default function PremiumShop() {
   const [phonePayment, setPhonePayment] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Fetch payments history from Firestore
+  // Fetch payments history from DB
   useEffect(() => {
     const fetchPayments = async () => {
       if (!userProfile) return;
       try {
-        const payRef = collection(db, 'payments');
-        const q = query(payRef, where('userId', '==', userProfile.uid));
-        const snap = await getDocs(q);
-        const history = snap.docs.map(doc => doc.data() as PaymentRecord);
+        const history = await dbService.fetchPayments(userProfile.uid);
         setPaymentsHistory(history.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       } catch (err) {
         console.error("Error fetching payments:", err);
@@ -103,7 +99,7 @@ export default function PremiumShop() {
       const resData = await response.json();
       console.log("[Money Fusion Webhook Trigger Response]:", resData);
 
-      // 2. Write payment record to FireStore
+      // 2. Write payment record to DB
       const paymentRec: PaymentRecord = {
         id: reference,
         userId: userProfile.uid,
@@ -114,14 +110,13 @@ export default function PremiumShop() {
         date: new Date().toISOString(),
         reference: reference
       };
-      await setDoc(doc(db, 'payments', reference), paymentRec);
+      await dbService.savePaymentRecord(paymentRec);
 
-      // 3. Write/update Subscription in FireStore
+      // 3. Write/update Subscription in DB
       const subscriptionEndDate = new Date();
       subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + selectedPlan.durationMonths);
 
-      const subRef = doc(db, 'subscriptions', `${userProfile.uid}_sub`);
-      await setDoc(subRef, {
+      await dbService.saveSubscription(userProfile.uid, {
         id: `${userProfile.uid}_sub`,
         userId: userProfile.uid,
         type: selectedPlan.id,
@@ -130,7 +125,7 @@ export default function PremiumShop() {
         endDate: subscriptionEndDate.toISOString()
       });
 
-      // 4. Update local user profile state in Firebase auth profile
+      // 4. Update local user profile state
       await updateProfileData({
         isPremium: true,
         premiumUntil: subscriptionEndDate.toISOString(),

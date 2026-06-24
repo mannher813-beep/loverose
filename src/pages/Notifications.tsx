@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, onSnapshot, setDoc, orderBy } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService, subscribeNotifications } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
 import { AppNotification } from '../types';
 import { 
@@ -20,19 +19,8 @@ export default function NotificationsPage() {
     if (!userProfile) return;
     setLoading(true);
 
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userProfile.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(d => d.data() as AppNotification);
-      // Sort in memory by createdAt descending since composite index might not exist yet
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const unsubscribe = subscribeNotifications(userProfile.uid, (list) => {
       setNotifications(list);
-      setLoading(false);
-    }, (err) => {
-      console.error("Notifications listener error:", err);
       setLoading(false);
     });
 
@@ -44,7 +32,7 @@ export default function NotificationsPage() {
     try {
       for (const n of notifications) {
         if (!n.read) {
-          await updateDoc(doc(db, 'notifications', n.id), { read: true });
+          await dbService.markNotificationAsRead(n.id);
         }
       }
     } catch (err) {
@@ -57,7 +45,7 @@ export default function NotificationsPage() {
     if (!window.confirm("Voulez-vous supprimer toutes vos notifications ?")) return;
     try {
       for (const n of notifications) {
-        await deleteDoc(doc(db, 'notifications', n.id));
+        await dbService.deleteNotification(n.id);
       }
     } catch (err) {
       console.error("Error clearing notifications:", err);
@@ -67,7 +55,7 @@ export default function NotificationsPage() {
   const handleNotificationClick = async (notif: AppNotification) => {
     try {
       if (!notif.read) {
-        await updateDoc(doc(db, 'notifications', notif.id), { read: true });
+        await dbService.markNotificationAsRead(notif.id);
       }
       // If notification has a sender, let user visit their profile!
       if (notif.senderId) {
@@ -110,8 +98,8 @@ export default function NotificationsPage() {
     }
 
     try {
-      // First, ensure the simulated user profile document exists in Firestore so they can visit it!
-      await setDoc(doc(db, 'users', sender.uid), {
+      // First, ensure the simulated user profile document exists in DB so they can visit it!
+      await dbService.saveUserProfile({
         uid: sender.uid,
         email: `${sender.uid}@loverose.com`,
         displayName: sender.name,
@@ -122,6 +110,8 @@ export default function NotificationsPage() {
         country: 'Sénégal',
         isVerified: true,
         isPremium: true,
+        isVip: false,
+        role: 'user',
         verificationLevel: 3,
         interests: ['Cinéma', 'Voyages', 'Fitness'],
         languages: ['Français', 'English'],
@@ -130,7 +120,7 @@ export default function NotificationsPage() {
       });
 
       // Write notification document
-      await setDoc(doc(db, 'notifications', notifId), {
+      await dbService.saveNotification({
         id: notifId,
         userId: userProfile.uid,
         title,

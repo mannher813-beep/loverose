@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dbService } from '../services/db';
 import { UserProfile, Match } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -30,14 +29,14 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
     async function fetchProfile() {
       try {
         setLoading(true);
-        const docSnap = await getDoc(doc(db, 'users', userId));
-        if (docSnap.exists()) {
-          setProfile(docSnap.data() as UserProfile);
+        const user = await dbService.getUserProfile(userId);
+        if (user) {
+          setProfile(user);
           
           // Log a profile visit in the notifications for high interaction simulation!
           if (userProfile && userProfile.uid !== userId) {
             const notifId = `visit_${userProfile.uid}_to_${userId}_${Date.now()}`;
-            await setDoc(doc(db, 'notifications', notifId), {
+            await dbService.saveNotification({
               id: notifId,
               userId: userId,
               type: 'visit',
@@ -68,7 +67,7 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
     setSuccessMsg('');
     try {
       const likeId = `${userProfile.uid}_${profile.uid}`;
-      await setDoc(doc(db, 'likes', likeId), {
+      await dbService.saveLike({
         id: likeId,
         fromUid: userProfile.uid,
         toUid: profile.uid,
@@ -77,9 +76,7 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
       });
 
       // Reciprocal check
-      const reciprocalLikeRef = doc(db, 'likes', `${profile.uid}_${userProfile.uid}`);
-      const reciprocalSnap = await getDoc(reciprocalLikeRef);
-      const isMatch = reciprocalSnap.exists() && reciprocalSnap.data().type !== 'pass';
+      const isMatch = await dbService.checkReciprocalLike(userProfile.uid, profile.uid);
 
       if (isMatch) {
         const matchId = [userProfile.uid, profile.uid].sort().join('_');
@@ -90,7 +87,7 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
           lastMessageAt: new Date().toISOString(),
           lastMessageText: "Vous avez un match ! Envoyez le premier message."
         };
-        await setDoc(doc(db, 'matches', matchId), newMatch);
+        await dbService.saveMatch(newMatch);
         setSuccessMsg(`Félicitations ! C'est un Match avec ${profile.displayName} ! 🌹`);
       } else {
         setSuccessMsg(`Votre ${type === 'like' ? 'Like' : 'Super Like'} a bien été envoyé !`);
@@ -108,10 +105,10 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
     try {
       // Find or create match
       const matchId = [userProfile.uid, profile.uid].sort().join('_');
-      const matchRef = doc(db, 'matches', matchId);
-      const matchSnap = await getDoc(matchRef);
+      const matches = await dbService.fetchMatches(userProfile.uid);
+      const matchExists = matches.some(m => m.id === matchId);
 
-      if (!matchSnap.exists()) {
+      if (!matchExists) {
         const newMatch: Match = {
           id: matchId,
           users: [userProfile.uid, profile.uid],
@@ -119,7 +116,7 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
           lastMessageAt: new Date().toISOString(),
           lastMessageText: "Discussion lancée."
         };
-        await setDoc(matchRef, newMatch);
+        await dbService.saveMatch(newMatch);
       }
       
       onClose();
@@ -137,7 +134,7 @@ export default function UserProfileModal({ userId, onClose }: UserProfileModalPr
     setActionLoading(true);
     try {
       const reportId = `rep_${userProfile.uid}_${profile.uid}_${Date.now()}`;
-      await setDoc(doc(db, 'reports', reportId), {
+      await dbService.saveReport({
         id: reportId,
         reporterId: userProfile.uid,
         reportedId: profile.uid,

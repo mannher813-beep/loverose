@@ -6,8 +6,7 @@ import {
   Heart, MessageCircle, User, Settings, ShieldAlert, 
   Sparkles, Wifi, WifiOff, Phone, Video, X, Mic, MicOff, Camera, CameraOff, LogOut, Info, Bell, Rss
 } from 'lucide-react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { subscribeNotifications } from '../services/db';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -29,15 +28,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!userProfile) return;
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userProfile.uid),
-      where('read', '==', false)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setUnreadCount(snapshot.size);
-    }, (err) => {
-      console.warn("Notifications badge snapshot error:", err);
+    const unsubscribe = subscribeNotifications(userProfile.uid, (notifs) => {
+      setUnreadCount(notifs.filter(n => !n.read).length);
     });
     return () => unsubscribe();
   }, [userProfile]);

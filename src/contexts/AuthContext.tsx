@@ -9,8 +9,8 @@ import {
   signInWithPopup,
   OAuthProvider
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { auth } from '../firebase/config';
+import { dbService } from '../services/db';
 import { UserProfile } from '../types';
 
 interface AuthContextType {
@@ -38,10 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserProfile(null);
       return;
     }
-    const userDocRef = doc(db, 'users', auth.currentUser.uid);
-    const userSnap = await getDoc(userDocRef);
-    if (userSnap.exists()) {
-      setUserProfile(userSnap.data() as UserProfile);
+    const profile = await dbService.getUserProfile(auth.currentUser.uid);
+    if (profile) {
+      setUserProfile(profile);
     }
   };
 
@@ -50,18 +49,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCurrentUser(user);
       if (user) {
         try {
-          // Fetch or create user document in firestore
-          const userDocRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userDocRef);
+          // Fetch or create user document via dbService
+          const profile = await dbService.getUserProfile(user.uid);
           
-          if (userSnap.exists()) {
-            const profile = userSnap.data() as UserProfile;
+          if (profile) {
             setUserProfile(profile);
             // Update online status
-            await updateDoc(userDocRef, {
+            await dbService.updateUserProfile(user.uid, {
               online: true,
               lastSeen: new Date().toISOString()
-            }).catch(e => console.warn("Could not update online status in Firestore", e));
+            }).catch(e => console.warn("Could not update online status", e));
           } else {
             // Initialize empty profile
             const newProfile: UserProfile = {
@@ -80,12 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               createdAt: new Date().toISOString(),
               lastSeen: new Date().toISOString()
             };
-            await setDoc(userDocRef, newProfile);
+            await dbService.saveUserProfile(newProfile);
             setUserProfile(newProfile);
           }
         } catch (error) {
-          console.error("Error loading user profile from Firestore:", error);
-          // Fallback user profile to avoid blocking the user if Firestore has issues
+          console.error("Error loading user profile:", error);
+          // Fallback user profile to avoid blocking the user if databases have issues
           const fallbackProfile: UserProfile = {
             uid: user.uid,
             email: user.email || '',
@@ -133,8 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     if (currentUser) {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
+      await dbService.updateUserProfile(currentUser.uid, {
         online: false,
         lastSeen: new Date().toISOString()
       }).catch(() => {});
@@ -144,10 +140,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfileData = async (data: Partial<UserProfile>) => {
     if (!currentUser) return;
-    const userDocRef = doc(db, 'users', currentUser.uid);
-    await updateDoc(userDocRef, data);
+    await dbService.updateUserProfile(currentUser.uid, data);
     setUserProfile(prev => prev ? { ...prev, ...data } : null);
   };
+
 
   return (
     <AuthContext.Provider value={{

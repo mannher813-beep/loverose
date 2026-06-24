@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppStore } from '../store/appStore';
-import { 
-  collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDoc, deleteDoc, orderBy
-} from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { isSupabaseConfigured, supabase } from '../supabase/config';
+import { dbService, subscribeMessages } from '../services/db';
 import { Match, Message, UserProfile } from '../types';
 import { 
   Send, Smile, Image as ImageIcon, Mic, Phone, Video, Trash2, CornerUpLeft, CheckCheck, MapPin, Sparkles, X, ChevronLeft 
@@ -30,54 +30,83 @@ export default function Messenger() {
   useEffect(() => {
     if (!userProfile) return;
 
-    const matchesRef = collection(db, 'matches');
-    const q = query(matchesRef, where('users', 'array-contains', userProfile.uid));
+    if (isSupabaseConfigured) {
+      const fetchSupabaseMatches = async () => {
+        try {
+          const list = await dbService.fetchMatches(userProfile.uid);
+          const fetchedMatches: any[] = [];
+          for (const matchData of list) {
+            const targetUid = matchData.users.find(uid => uid !== userProfile.uid);
+            if (targetUid) {
+              const profile = await dbService.getUserProfile(targetUid);
+              if (profile) {
+                fetchedMatches.push({
+                  ...matchData,
+                  targetUser: profile
+                });
+              }
+            }
+          }
+          setMatches(fetchedMatches.sort((a, b) => {
+            const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+            const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+            return dateB - dateA;
+          }));
+          setLoading(false);
+        } catch (err) {
+          console.error("Error fetching Supabase matches:", err);
+        }
+      };
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const fetchedMatches: any[] = [];
-      for (const d of snapshot.docs) {
-        const matchData = d.data() as Match;
-        const targetUid = matchData.users.find(uid => uid !== userProfile.uid);
-        if (targetUid) {
-          const targetSnap = await getDoc(doc(db, 'users', targetUid));
-          if (targetSnap.exists()) {
-            fetchedMatches.push({
-              ...matchData,
-              targetUser: targetSnap.data() as UserProfile
-            });
+      fetchSupabaseMatches();
+
+      // Setup a subscription for new matches as well
+      const channel = supabase.channel('realtime_matches_lobby')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
+          fetchSupabaseMatches();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } else {
+      // Fallback
+      const matchesRef = collection(db, 'matches');
+      const q = query(matchesRef, where('users', 'array-contains', userProfile.uid));
+
+      const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const fetchedMatches: any[] = [];
+        for (const d of snapshot.docs) {
+          const matchData = d.data() as Match;
+          const targetUid = matchData.users.find(uid => uid !== userProfile.uid);
+          if (targetUid) {
+            const profile = await dbService.getUserProfile(targetUid);
+            if (profile) {
+              fetchedMatches.push({
+                ...matchData,
+                targetUser: profile
+              });
+            }
           }
         }
-      }
-      setMatches(fetchedMatches.sort((a, b) => {
-        const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-        const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-        return dateB - dateA;
-      }));
-      setLoading(false);
-    });
+        setMatches(fetchedMatches.sort((a, b) => {
+          const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return dateB - dateA;
+        }));
+        setLoading(false);
+      });
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    }
   }, [userProfile]);
 
   // 2. Listen to messages for the selected match in real-time
   useEffect(() => {
     if (!selectedMatch) return;
 
-    const messagesRef = collection(db, 'messages');
-    const q = query(
-      messagesRef, 
-      where('matchId', '==', selectedMatch.id),
-      orderBy('timestamp', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedMessages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      setMessages(fetchedMessages);
-    });
-
+    const unsubscribe = subscribeMessages(selectedMatch.id, setMessages);
     return () => unsubscribe();
   }, [selectedMatch]);
 
@@ -92,7 +121,9 @@ export default function Messenger() {
     if (!userProfile || !selectedMatch) return;
 
     try {
-      const messageData = {
+      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const messageData: Message = {
+        id: msgId,
         matchId: selectedMatch.id,
         senderId: userProfile.uid,
         text: inputText.trim() || undefined,
@@ -103,14 +134,11 @@ export default function Messenger() {
         ...customFields
       };
 
-      await addDoc(collection(db, 'messages'), messageData);
+      await dbService.saveMessage(messageData);
 
       // Update match preview
-      const matchDocRef = doc(db, 'matches', selectedMatch.id);
-      await updateDoc(matchDocRef, {
-        lastMessageText: inputText.trim() || (customFields.audio ? '🎤 Message vocal' : customFields.gif ? '🖼️ GIF' : '📷 Image'),
-        lastMessageAt: new Date().toISOString()
-      });
+      const previewText = inputText.trim() || (customFields.audio ? '🎤 Message vocal' : customFields.gif ? '🖼️ GIF' : '📷 Image');
+      await dbService.updateMatchLastMessage(selectedMatch.id, previewText);
 
       setInputText('');
       setReplyMessage(null);
@@ -122,11 +150,14 @@ export default function Messenger() {
   // Delete message (soft delete)
   const handleDeleteMessage = async (msgId: string) => {
     try {
-      const msgRef = doc(db, 'messages', msgId);
-      await updateDoc(msgRef, {
-        isDeleted: true,
-        text: "Ce message a été supprimé"
-      });
+      const msgToUpdate = messages.find(m => m.id === msgId);
+      if (msgToUpdate) {
+        await dbService.saveMessage({
+          ...msgToUpdate,
+          isDeleted: true,
+          text: "Ce message a été supprimé"
+        });
+      }
     } catch (err) {
       console.error("Error deleting message:", err);
     }
