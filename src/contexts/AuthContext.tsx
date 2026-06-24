@@ -4,7 +4,10 @@ import {
   signOut, 
   User,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  OAuthProvider
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
@@ -16,6 +19,8 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, pass: string) => Promise<any>;
   registerUser: (email: string, pass: string) => Promise<any>;
+  loginWithGoogle: () => Promise<any>;
+  loginWithApple: () => Promise<any>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfileData: (data: Partial<UserProfile>) => Promise<void>;
@@ -94,6 +99,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return createUserWithEmailAndPassword(auth, email, pass);
   };
 
+  const loginWithGoogle = () => {
+    const provider = new GoogleAuthProvider();
+    return signInWithPopup(auth, provider);
+  };
+
+  const loginWithApple = () => {
+    const provider = new OAuthProvider('apple.com');
+    return signInWithPopup(auth, provider);
+  };
+
   const logout = async () => {
     if (currentUser) {
       const userDocRef = doc(db, 'users', currentUser.uid);
@@ -119,6 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       login,
       registerUser,
+      loginWithGoogle,
+      loginWithApple,
       logout,
       refreshProfile,
       updateProfileData
