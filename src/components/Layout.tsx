@@ -4,8 +4,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppStore } from '../store/appStore';
 import { 
   Heart, MessageCircle, User, Settings, ShieldAlert, 
-  Sparkles, Wifi, WifiOff, Phone, Video, X, Mic, MicOff, Camera, CameraOff, LogOut, Info
+  Sparkles, Wifi, WifiOff, Phone, Video, X, Mic, MicOff, Camera, CameraOff, LogOut, Info, Bell, Rss
 } from 'lucide-react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/config';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -14,6 +16,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Notifications live badge count
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // PWA Installation states
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showPwaBanner, setShowPwaBanner] = useState(false);
@@ -21,6 +26,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Audio/Video call toggles
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userProfile.uid),
+      where('read', '==', false)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUnreadCount(snapshot.size);
+    }, (err) => {
+      console.warn("Notifications badge snapshot error:", err);
+    });
+    return () => unsubscribe();
+  }, [userProfile]);
 
   useEffect(() => {
     // Online / Offline tracking
@@ -132,12 +152,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link to="/discovery" className={`hover:text-brand transition ${isActive('/discovery') ? 'text-brand' : ''}`}>
                 Découverte
               </Link>
+              <Link to="/feed" className={`hover:text-brand transition ${isActive('/feed') ? 'text-brand' : ''}`}>
+                Fil d'actu
+              </Link>
               <Link to="/messages" className={`hover:text-brand transition ${isActive('/messages') ? 'text-brand' : ''}`}>
                 Messagerie
               </Link>
+              <Link to="/notifications" className={`hover:text-brand transition flex items-center space-x-1 relative ${isActive('/notifications') ? 'text-brand' : ''}`}>
+                <span>Notifications</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-brand text-white text-[8px] font-mono font-bold w-4 h-4 rounded-full flex items-center justify-center animate-pulse shadow-sm">
+                    {unreadCount}
+                  </span>
+                )}
+              </Link>
               <Link to="/premium" className={`hover:text-brand transition flex items-center space-x-1 ${isActive('/premium') ? 'text-brand' : ''}`}>
                 <Sparkles size={16} className="text-brand-gold fill-brand-gold animate-bounce" />
-                <span className="text-brand-gold">Devenir Premium</span>
+                <span className="text-brand-gold">Premium</span>
               </Link>
               {userProfile.role === 'admin' && (
                 <Link to="/admin" className={`hover:text-red-500 transition flex items-center space-x-1 ${isActive('/admin') ? 'text-red-500' : ''}`}>
@@ -171,28 +202,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Navigation Bar - Glassmorphic */}
       {userProfile && (
-        <nav className="fixed bottom-0 left-0 right-0 backdrop-blur-md bg-white/60 border-t border-rose-100/50 py-2.5 px-6 flex justify-between items-center md:hidden z-40 shadow-lg">
-          <Link to="/discovery" className={`flex flex-col items-center space-y-1 ${isActive('/discovery') ? 'text-brand' : 'text-gray-400'}`}>
-            <Heart size={22} fill={isActive('/discovery') ? 'currentColor' : 'none'} />
-            <span className="text-[10px] font-bold">Découverte</span>
+        <nav className="fixed bottom-0 left-0 right-0 backdrop-blur-md bg-white/65 border-t border-rose-100/50 py-2 px-3 flex justify-around items-center md:hidden z-40 shadow-lg">
+          <Link to="/discovery" className={`flex flex-col items-center space-y-0.5 ${isActive('/discovery') ? 'text-brand' : 'text-gray-400'}`}>
+            <Heart size={20} fill={isActive('/discovery') ? 'currentColor' : 'none'} />
+            <span className="text-[9px] font-bold">Découverte</span>
           </Link>
-          <Link to="/messages" className={`flex flex-col items-center space-y-1 ${isActive('/messages') ? 'text-brand' : 'text-gray-400'}`}>
-            <MessageCircle size={22} fill={isActive('/messages') ? 'currentColor' : 'none'} />
-            <span className="text-[10px] font-bold">Messages</span>
+          <Link to="/feed" className={`flex flex-col items-center space-y-0.5 ${isActive('/feed') ? 'text-brand' : 'text-gray-400'}`}>
+            <Rss size={20} />
+            <span className="text-[9px] font-bold">Actu</span>
           </Link>
-          <Link to="/premium" className={`flex flex-col items-center space-y-1 ${isActive('/premium') ? 'text-brand-gold' : 'text-gray-400'}`}>
-            <Sparkles size={22} fill={isActive('/premium') ? 'currentColor' : 'none'} />
-            <span className="text-[10px] font-bold">Premium</span>
+          <Link to="/messages" className={`flex flex-col items-center space-y-0.5 ${isActive('/messages') ? 'text-brand' : 'text-gray-400'}`}>
+            <MessageCircle size={20} fill={isActive('/messages') ? 'currentColor' : 'none'} />
+            <span className="text-[9px] font-bold">Messages</span>
           </Link>
-          {userProfile.role === 'admin' && (
-            <Link to="/admin" className={`flex flex-col items-center space-y-1 ${isActive('/admin') ? 'text-red-500' : 'text-gray-400'}`}>
-              <ShieldAlert size={22} />
-              <span className="text-[10px] font-bold">Admin</span>
-            </Link>
-          )}
-          <Link to="/profile" className={`flex flex-col items-center space-y-1 ${isActive('/profile') ? 'text-brand' : 'text-gray-400'}`}>
-            <User size={22} fill={isActive('/profile') ? 'currentColor' : 'none'} />
-            <span className="text-[10px] font-bold">Profil</span>
+          <Link to="/notifications" className={`flex flex-col items-center space-y-0.5 relative ${isActive('/notifications') ? 'text-brand' : 'text-gray-400'}`}>
+            <Bell size={20} fill={isActive('/notifications') ? 'currentColor' : 'none'} />
+            <span className="text-[9px] font-bold">Alertes</span>
+            {unreadCount > 0 && (
+              <span className="absolute top-0 right-1.5 bg-brand text-white text-[8px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center animate-pulse">
+                {unreadCount}
+              </span>
+            )}
+          </Link>
+          <Link to="/profile" className={`flex flex-col items-center space-y-0.5 ${isActive('/profile') ? 'text-brand' : 'text-gray-400'}`}>
+            <User size={20} fill={isActive('/profile') ? 'currentColor' : 'none'} />
+            <span className="text-[9px] font-bold">Profil</span>
           </Link>
         </nav>
       )}

@@ -104,7 +104,31 @@ export interface AppNotification {
   userId: string;
   title: string;
   body: string;
-  type: 'match' | 'message' | 'like' | 'super_like' | 'subscription_expired' | 'promotion';
+  type: 'match' | 'message' | 'like' | 'super_like' | 'subscription_expired' | 'promotion' | 'visit' | 'system';
   read: boolean;
+  createdAt: string;
+  senderId?: string;
+  senderName?: string;
+  senderPhoto?: string;
+}
+
+export interface PostComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface Post {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto: string;
+  text: string;
+  photo?: string;
+  likes: string[]; // List of user UIDs who liked
+  comments: PostComment[];
   createdAt: string;
 }

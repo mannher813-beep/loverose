@@ -11,6 +11,8 @@ import Messenger from './pages/Messenger';
 import PremiumShop from './pages/PremiumShop';
 import UserProfilePage from './pages/UserProfilePage';
 import AdminDashboard from './pages/AdminDashboard';
+import NotificationsPage from './pages/Notifications';
+import FeedPage from './pages/Feed';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Contact from './pages/Contact';
@@ -75,6 +77,18 @@ export default function App() {
           <Route path="/profile" element={
             <ProtectedRoute>
               <UserProfilePage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/notifications" element={
+            <ProtectedRoute>
+              <NotificationsPage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/feed" element={
+            <ProtectedRoute>
+              <FeedPage />
             </ProtectedRoute>
           } />
 

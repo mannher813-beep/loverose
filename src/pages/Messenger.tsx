@@ -10,6 +10,7 @@ import {
   Send, Smile, Image as ImageIcon, Mic, Phone, Video, Trash2, CornerUpLeft, CheckCheck, MapPin, Sparkles, X, ChevronLeft 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import UserProfileModal from '../components/UserProfileModal';
 
 export default function Messenger() {
   const { userProfile } = useAuth();
@@ -21,6 +22,7 @@ export default function Messenger() {
   const [inputText, setInputText] = useState('');
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedProfileUid, setSelectedProfileUid] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -183,11 +185,18 @@ export default function Messenger() {
                     isSelected ? 'bg-brand/10 border-l-4 border-brand' : 'hover:bg-white/30'
                   }`}
                 >
-                  <div className="relative">
+                  <div 
+                    className="relative cursor-pointer group shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation(); // prevent chat selection, view profile instead
+                      setSelectedProfileUid(m.targetUser.uid);
+                    }}
+                    title="Visiter le profil en détail"
+                  >
                     <img 
                       src={m.targetUser.photos[0]} 
                       alt={m.targetUser.displayName} 
-                      className="w-12 h-12 rounded-full object-cover border border-pink-100"
+                      className="w-12 h-12 rounded-full object-cover border border-pink-100 group-hover:scale-105 transition"
                       referrerPolicy="no-referrer"
                     />
                     {m.targetUser.online && (
@@ -224,22 +233,29 @@ export default function Messenger() {
                 >
                   <ChevronLeft size={20} />
                 </button>
-                <img 
-                  src={selectedMatch.targetUser.photos[0]} 
-                  alt={selectedMatch.targetUser.displayName} 
-                  className="w-10 h-10 rounded-full object-cover border border-pink-50"
-                  referrerPolicy="no-referrer"
-                />
-                <div>
-                  <h3 className="font-bold text-sm text-gray-800 flex items-center">
-                    <span>{selectedMatch.targetUser.displayName}</span>
-                    {selectedMatch.targetUser.isVerified && (
-                      <span className="text-blue-500 ml-1 text-xs">✔</span>
-                    )}
-                  </h3>
-                  <p className="text-[10px] text-gray-400 font-mono">
-                    {selectedMatch.targetUser.online ? 'En ligne' : `Dernière connexion: ${selectedMatch.targetUser.city || 'LoveRose'}`}
-                  </p>
+                
+                <div 
+                  onClick={() => setSelectedProfileUid(selectedMatch.targetUser.uid)}
+                  className="flex items-center space-x-3 cursor-pointer group text-left"
+                  title="Visiter le profil de ce correspondant"
+                >
+                  <img 
+                    src={selectedMatch.targetUser.photos[0]} 
+                    alt={selectedMatch.targetUser.displayName} 
+                    className="w-10 h-10 rounded-full object-cover border border-pink-50 group-hover:scale-105 transition"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <h3 className="font-bold text-sm text-gray-800 flex items-center group-hover:text-brand transition">
+                      <span>{selectedMatch.targetUser.displayName}</span>
+                      {selectedMatch.targetUser.isVerified && (
+                        <span className="text-blue-500 ml-1 text-xs">✔</span>
+                      )}
+                    </h3>
+                    <p className="text-[10px] text-gray-400 font-mono">
+                      {selectedMatch.targetUser.online ? 'En ligne' : `Dernière connexion: ${selectedMatch.targetUser.city || 'LoveRose'}`}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -423,6 +439,15 @@ export default function Messenger() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {selectedProfileUid && (
+          <UserProfileModal 
+            userId={selectedProfileUid} 
+            onClose={() => setSelectedProfileUid(null)} 
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

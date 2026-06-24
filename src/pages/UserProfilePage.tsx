@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
-  User, Settings, ShieldCheck, Mail, Phone, Camera, Sparkles, EyeOff, Lock, Eye, AlertCircle, RefreshCw 
+  User, Settings, ShieldCheck, Mail, Phone, Camera, Sparkles, EyeOff, Lock, Eye, AlertCircle, RefreshCw, LogOut, Upload, Image as ImageIcon
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { VerificationRequest } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 export default function UserProfilePage() {
-  const { userProfile, updateProfileData } = useAuth();
+  const { userProfile, updateProfileData, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'profile' | 'settings' | 'verification'>('profile');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Profile forms state
   const [bio, setBio] = useState(userProfile?.bio || '');
@@ -21,6 +24,7 @@ export default function UserProfilePage() {
   const [profession, setProfession] = useState(userProfile?.profession || '');
   const [education, setEducation] = useState(userProfile?.education || '');
   const [languages, setLanguages] = useState(userProfile?.languages?.join(', ') || '');
+  const [photoPreview, setPhotoPreview] = useState<string | null>(userProfile?.photos?.[0] || null);
 
   // Settings states
   const [hideAge, setHideAge] = useState(userProfile?.hideAge || false);
@@ -38,6 +42,37 @@ export default function UserProfilePage() {
       </div>
     );
   }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError('');
+    setSuccess('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024 * 3) { // 3MB max
+      setError("La photo est trop lourde. Veuillez choisir une image de moins de 3 Mo.");
+      return;
+    }
+
+    setUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      setPhotoPreview(base64String);
+      try {
+        const currentPhotos = userProfile.photos || [];
+        const updatedPhotos = [base64String, ...currentPhotos.slice(1)];
+        await updateProfileData({ photos: updatedPhotos });
+        setSuccess("Votre photo de profil a été mise à jour !");
+      } catch (err: any) {
+        console.error("Error updating profile photo:", err);
+        setError("Impossible d'enregistrer la photo dans votre profil.");
+      } finally {
+        setUploadingPhoto(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +117,15 @@ export default function UserProfilePage() {
       setError(err.message || "Erreur de sauvegarde");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogoutClick = async () => {
+    try {
+      await logout();
+      navigate('/');
+    } catch (err) {
+      console.error("Failed to logout:", err);
     }
   };
 
@@ -205,6 +249,14 @@ export default function UserProfilePage() {
           <ShieldCheck size={14} />
           <span>Vérification IA</span>
         </button>
+
+        <button 
+          onClick={handleLogoutClick}
+          className="w-full py-2.5 px-4 rounded-xl text-left text-xs font-bold text-red-500 hover:bg-red-50/50 transition flex items-center space-x-2 cursor-pointer mt-4 border-t border-rose-100/35 pt-3"
+        >
+          <LogOut size={14} />
+          <span>Se déconnecter</span>
+        </button>
       </div>
 
       {/* Main Content Pane */}
@@ -229,6 +281,31 @@ export default function UserProfilePage() {
             <div className="flex justify-between items-center pb-2 border-b border-rose-100/50">
               <h3 className="font-serif font-bold text-lg text-gray-800">Modifier mon profil</h3>
               <span className="text-[10px] text-gray-400 font-semibold font-mono">ID: {userProfile.uid}</span>
+            </div>
+
+            {/* Photo Uploader Section */}
+            <div className="bg-rose-50/20 border border-rose-100/30 p-4 rounded-3xl flex flex-col sm:flex-row items-center gap-4">
+              <div className="relative w-20 h-20 rounded-2xl overflow-hidden border border-rose-100/40 bg-white flex items-center justify-center shadow-inner group">
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Aperçu" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <ImageIcon size={24} className="text-gray-300" />
+                )}
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <RefreshCw size={16} className="text-white animate-spin" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 text-center sm:text-left space-y-1">
+                <h4 className="text-xs font-bold text-gray-800">Votre Photo de Profil Réelle</h4>
+                <p className="text-[10px] text-gray-450 leading-snug">Importez une vraie photo de vous. Elle sera directement visible sur l'écran découverte.</p>
+                <label className="inline-flex items-center space-x-1 px-3 py-1.5 bg-white hover:bg-rose-50/50 border border-rose-150/40 rounded-xl text-[10px] font-bold text-brand cursor-pointer shadow-sm transition-all mt-1">
+                  <Upload size={10} />
+                  <span>{uploadingPhoto ? 'Chargement...' : 'Choisir une photo'}</span>
+                  <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" disabled={uploadingPhoto} />
+                </label>
+              </div>
             </div>
 
             <div>
@@ -362,13 +439,24 @@ export default function UserProfilePage() {
               </div>
             </div>
 
-            <button
-              onClick={handleSaveSettings}
-              disabled={loading}
-              className="w-full py-3 bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] text-white font-bold rounded-xl text-xs hover:scale-[1.01] shadow transition cursor-pointer"
-            >
-              {loading ? 'Sauvegarde...' : 'Enregistrer mes choix'}
-            </button>
+            <div className="pt-4 border-t border-rose-100/30 flex flex-col gap-2.5">
+              <button
+                onClick={handleSaveSettings}
+                disabled={loading}
+                className="w-full py-3 bg-gradient-to-br from-[#E85D75] to-[#F7B5C0] text-white font-bold rounded-xl text-xs hover:scale-[1.01] shadow transition cursor-pointer"
+              >
+                {loading ? 'Sauvegarde...' : 'Enregistrer mes choix'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogoutClick}
+                className="w-full py-3 bg-red-50 text-red-600 border border-red-100 font-bold rounded-xl text-xs hover:bg-red-100/55 transition cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <LogOut size={13} />
+                <span>Se déconnecter de mon compte</span>
+              </button>
+            </div>
           </div>
         )}
 
