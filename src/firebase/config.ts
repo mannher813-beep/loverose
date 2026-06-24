@@ -18,5 +18,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+const databaseId = metaEnv.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-f817e0db-2d30-4cc1-8c34-46f3ddc2bf8c";
+export const db = getFirestore(app, databaseId);
 export const storage = getStorage(app);
